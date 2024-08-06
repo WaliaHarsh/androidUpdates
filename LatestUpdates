@@ -1,3 +1,481 @@
+I apologize for the incomplete response. I'll provide the complete code, including the dependency injection part as mentioned in the HLD. Here's the full implementation:
+
+1. build.gradle.kts (root project)
+
+```kotlin
+buildscript {
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.0")
+        classpath("com.android.tools.build:gradle:7.4.0")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+```
+
+2. build.gradle.kts (module)
+
+```kotlin
+plugins {
+    kotlin("multiplatform")
+    id("com.android.library")
+    kotlin("plugin.serialization") version "1.8.0"
+}
+
+kotlin {
+    android()
+    ios()
+
+    sourceSets {
+        val commonMain by getting {
+            dependencies {
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.4.1")
+                implementation("io.insert-koin:koin-core:3.2.0")
+            }
+        }
+        val commonTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.4")
+                implementation("io.mockk:mockk:1.12.5")
+            }
+        }
+        val androidMain by getting {
+            dependencies {
+                implementation("androidx.datastore:datastore-preferences:1.0.0")
+                implementation("androidx.security:security-crypto:1.1.0-alpha04")
+                implementation("androidx.biometric:biometric:1.1.0")
+                implementation("io.insert-koin:koin-android:3.2.0")
+            }
+        }
+        val iosMain by getting
+    }
+}
+
+android {
+    compileSdk = 33
+    sourceSets["main"].manifest.srcFile("src/androidMain/AndroidManifest.xml")
+    defaultConfig {
+        minSdk = 21
+        targetSdk = 33
+    }
+}
+```
+
+Now, let's implement the complete code for each file:
+
+3. PreferencePlugin.kt
+
+```kotlin
+package com.example.caching
+
+interface PreferencePlugin {
+    suspend fun <T> getPreference(key: String, default: T): T
+    suspend fun <T> putPreference(key: String, value: T)
+    suspend fun hasPreference(key: String): Boolean
+    suspend fun clearPreference(key: String)
+    suspend fun clearAllPreferences()
+}
+```
+
+4. EncryptedPreferencePlugin.kt
+
+```kotlin
+package com.example.caching
+
+interface EncryptedPreferencePlugin {
+    suspend fun <T> getPreference(key: String, default: T): T
+    suspend fun <T> putPreference(key: String, value: T)
+    suspend fun hasPreference(key: String): Boolean
+    suspend fun clearPreference(key: String)
+    suspend fun clearAllPreferences()
+}
+```
+
+5. BiometricsPreferencePlugin.kt
+
+```kotlin
+package com.example.caching
+
+interface BiometricsPreferencePlugin {
+    suspend fun <T> getPreference(key: String, default: T): T
+    suspend fun <T> putPreference(key: String, value: T)
+    suspend fun hasPreference(key: String): Boolean
+    suspend fun clearPreference(key: String)
+    suspend fun clearAllPreferences()
+}
+```
+
+6. PreferencePluginImpl.kt
+
+```kotlin
+package com.example.caching
+
+expect class PreferencePluginImpl : PreferencePlugin
+```
+
+7. EncryptedPreferencePluginImpl.kt
+
+```kotlin
+package com.example.caching
+
+expect class EncryptedPreferencePluginImpl : EncryptedPreferencePlugin
+```
+
+8. BiometricsPreferencePluginImpl.kt
+
+```kotlin
+package com.example.caching
+
+expect class BiometricsPreferencePluginImpl : BiometricsPreferencePlugin
+```
+
+9. PreferencePlugin.android.kt
+
+```kotlin
+package com.example.caching
+
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.Json
+
+actual class PreferencePluginImpl(private val dataStore: DataStore<Preferences>) : PreferencePlugin {
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        val preferences = dataStore.data.first()
+        val value = preferences[stringPreferencesKey(key)] ?: return default
+        return Json.decodeFromString(value) as T
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        dataStore.edit { preferences ->
+            preferences[stringPreferencesKey(key)] = Json.encodeToString(value)
+        }
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        val preferences = dataStore.data.first()
+        return preferences.contains(stringPreferencesKey(key))
+    }
+
+    override suspend fun clearPreference(key: String) {
+        dataStore.edit { preferences ->
+            preferences.remove(stringPreferencesKey(key))
+        }
+    }
+
+    override suspend fun clearAllPreferences() {
+        dataStore.edit { preferences ->
+            preferences.clear()
+        }
+    }
+}
+```
+
+10. EncryptedPreferencePlugin.android.kt
+
+```kotlin
+package com.example.caching
+
+import android.content.Context
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import kotlinx.serialization.json.Json
+
+actual class EncryptedPreferencePluginImpl(context: Context) : EncryptedPreferencePlugin {
+    private val masterKey = MasterKey.Builder(context)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    private val encryptedPrefs = EncryptedSharedPreferences.create(
+        context,
+        "encrypted_prefs",
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        val value = encryptedPrefs.getString(key, null) ?: return default
+        return Json.decodeFromString(value) as T
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        encryptedPrefs.edit().putString(key, Json.encodeToString(value)).apply()
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        return encryptedPrefs.contains(key)
+    }
+
+    override suspend fun clearPreference(key: String) {
+        encryptedPrefs.edit().remove(key).apply()
+    }
+
+    override suspend fun clearAllPreferences() {
+        encryptedPrefs.edit().clear().apply()
+    }
+}
+```
+
+11. BiometricsPreferencePlugin.android.kt
+
+```kotlin
+package com.example.caching
+
+import android.content.Context
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+
+actual class BiometricsPreferencePluginImpl(
+    private val context: Context,
+    private val encryptedPreferencePlugin: EncryptedPreferencePlugin
+) : BiometricsPreferencePlugin {
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        if (!authenticateBiometrics()) return default
+        return encryptedPreferencePlugin.getPreference(key, default)
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        if (!authenticateBiometrics()) return
+        encryptedPreferencePlugin.putPreference(key, value)
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        return encryptedPreferencePlugin.hasPreference(key)
+    }
+
+    override suspend fun clearPreference(key: String) {
+        if (!authenticateBiometrics()) return
+        encryptedPreferencePlugin.clearPreference(key)
+    }
+
+    override suspend fun clearAllPreferences() {
+        if (!authenticateBiometrics()) return
+        encryptedPreferencePlugin.clearAllPreferences()
+    }
+
+    private suspend fun authenticateBiometrics(): Boolean = suspendCancellableCoroutine { continuation ->
+        val executor = ContextCompat.getMainExecutor(context)
+        val biometricPrompt = BiometricPrompt(
+            context as FragmentActivity,
+            executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    continuation.resume(true)
+                }
+
+                override fun onAuthenticationFailed() {
+                    continuation.resume(false)
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    continuation.resume(false)
+                }
+            }
+        )
+
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Biometric Authentication")
+            .setSubtitle("Authenticate to access secure preferences")
+            .setNegativeButtonText("Cancel")
+            .build()
+
+        biometricPrompt.authenticate(promptInfo)
+    }
+}
+```
+
+12. PreferencePlugin.ios.kt
+
+```kotlin
+package com.example.caching
+
+import platform.Foundation.NSUserDefaults
+import kotlinx.serialization.json.Json
+
+actual class PreferencePluginImpl : PreferencePlugin {
+    private val userDefaults = NSUserDefaults.standardUserDefaults
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        val value = userDefaults.stringForKey(key) ?: return default
+        return Json.decodeFromString(value) as T
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        userDefaults.setObject(Json.encodeToString(value), key)
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        return userDefaults.objectForKey(key) != null
+    }
+
+    override suspend fun clearPreference(key: String) {
+        userDefaults.removeObjectForKey(key)
+    }
+
+    override suspend fun clearAllPreferences() {
+        userDefaults.dictionaryRepresentation().keys.forEach { key ->
+            userDefaults.removeObjectForKey(key as String)
+        }
+    }
+}
+```
+
+13. EncryptedPreferencePlugin.ios.kt
+
+```kotlin
+package com.example.caching
+
+import platform.Foundation.NSData
+import platform.Foundation.NSString
+import platform.Foundation.NSUTF8StringEncoding
+import platform.Foundation.create
+import platform.Security.*
+import kotlinx.serialization.json.Json
+
+actual class EncryptedPreferencePluginImpl : EncryptedPreferencePlugin {
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        val query = mapOf(
+            kSecClass to kSecClassGenericPassword,
+            kSecAttrAccount to key,
+            kSecReturnData to kCFBooleanTrue
+        )
+        
+        val result = SecItemCopyMatching(query, null)
+        if (result != errSecSuccess) return default
+        
+        val data = result as NSData
+        val value = NSString.create(data = data, encoding = NSUTF8StringEncoding) as String
+        return Json.decodeFromString(value) as T
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        val data = NSString.create(Json.encodeToString(value)).dataUsingEncoding(NSUTF8StringEncoding)
+        
+        val query = mapOf(
+            kSecClass to kSecClassGenericPassword,
+            kSecAttrAccount to key,
+            kSecValueData to data
+        )
+        
+        SecItemAdd(query, null)
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        val query = mapOf(
+            kSecClass to kSecClassGenericPassword,
+            kSecAttrAccount to key
+        )
+        
+        return SecItemCopyMatching(query, null) == errSecSuccess
+    }
+
+    override suspend fun clearPreference(key: String) {
+        val query = mapOf(
+            kSecClass to kSecClassGenericPassword,
+            kSecAttrAccount to key
+        )
+        
+        SecItemDelete(query)
+    }
+
+    override suspend fun clearAllPreferences() {
+        val query = mapOf(
+            kSecClass to kSecClassGenericPassword
+        )
+        
+        SecItemDelete(query)
+    }
+}
+```
+
+14. BiometricsPreferencePlugin.ios.kt
+
+```kotlin
+package com.example.caching
+
+import platform.LocalAuthentication.LAContext
+import platform.LocalAuthentication.LAPolicyDeviceOwnerAuthenticationWithBiometrics
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+
+actual class BiometricsPreferencePluginImpl(
+    private val encryptedPreferencePlugin: EncryptedPreferencePlugin
+) : BiometricsPreferencePlugin {
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        if (!authenticateBiometrics()) return default
+        return encryptedPreferencePlugin.getPreference(key, default)
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        if (!authenticateBiometrics()) return
+        encryptedPreferencePlugin.putPreference(key, value)
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        return encryptedPreferencePlugin.hasPreference(key)
+    }
+
+    override suspend fun clearPreference(key: String) {
+        if (!authenticateBiometrics()) return
+        encryptedPreferencePlugin.clearPreference(key)
+    }
+
+    override suspend fun clearAllPreferences() {
+        if (!authenticateBiometrics()) return
+        encryptedPreferencePlugin.clearAllPreferences()
+    }
+
+    private suspend fun authenticateBiometrics(): Boolean = suspendCancellableCoroutine { continuation ->
+        val context = LAContext()
+        var error: NSError?
+        
+        if (context.canEvaluatePolicy(LAPolicyDeviceOwnerAuthenticationWithBiometrics, error)) {
+            context.evaluatePolicy(LAPolicyDeviceOwnerAuthenticationWithBiometrics, "Authenticate to access secure preferences") { success, _ ->
+                continuation.resume(success)
+            }
+        } else {
+            continuation.resume(false)
+        }
+    }
+}
+```
+
+15. DI Module (CachingModule.kt)
+
+```kotlin
+package com.example.caching
+
+import org.koin.dsl.module
+import org.koin.core.module.Module
+
+expect fun platformModule(): Module
+
+val cachingModule = module {
+    single<PreferencePlugin> { PreferencePluginImpl(get()) }
+    single<EncryptedPreferencePlugin> { EncryptedPreferencePluginImpl(get()) }
+    single
+
+
 Certainly! Below is the complete code for the caching preference system, including the interfaces, implementations for both Android and iOS, and the comprehensive test cases.
 
 ### Interfaces
