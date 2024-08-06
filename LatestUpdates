@@ -1,0 +1,572 @@
+Certainly! Below is the complete code for the caching preference system, including the interfaces, implementations for both Android and iOS, and the comprehensive test cases.
+
+### Interfaces
+
+```kotlin
+// PreferencePlugin.kt
+interface PreferencePlugin {
+    suspend fun <T> getPreference(key: String, default: T): T
+    suspend fun <T> putPreference(key: String, value: T)
+    suspend fun hasPreference(key: String): Boolean
+    suspend fun clearPreference(key: String)
+    suspend fun clearAllPreferences()
+}
+
+// EncryptedPreferencePlugin.kt
+interface EncryptedPreferencePlugin {
+    suspend fun <T> getPreference(key: String, default: T): T
+    suspend fun <T> putPreference(key: String, value: T)
+    suspend fun hasPreference(key: String): Boolean
+    suspend fun clearPreference(key: String)
+    suspend fun clearAllPreferences()
+}
+
+// BiometricsPreferencePlugin.kt
+interface BiometricsPreferencePlugin {
+    suspend fun <T> getPreference(key: String, default: T): T
+    suspend fun <T> putPreference(key: String, value: T)
+    suspend fun hasPreference(key: String): Boolean
+    suspend fun clearPreference(key: String)
+    suspend fun clearAllPreferences()
+}
+```
+
+### Common Implementations
+
+```kotlin
+// CommonPreferencePlugin.kt
+expect class CommonPreferencePlugin : PreferencePlugin
+
+// CommonEncryptedPreferencePlugin.kt
+expect class CommonEncryptedPreferencePlugin : EncryptedPreferencePlugin
+
+// CommonBiometricsPreferencePlugin.kt
+expect class CommonBiometricsPreferencePlugin : BiometricsPreferencePlugin
+```
+
+### Android Implementations
+
+```kotlin
+// AndroidPreferencePlugin.kt
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.Json
+
+actual class CommonPreferencePlugin(private val dataStore: DataStore<Preferences>) : PreferencePlugin {
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        val preferences = dataStore.data.first()
+        val value = preferences[stringPreferencesKey(key)] ?: return default
+        return Json.decodeFromString(value) as T
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        dataStore.edit { preferences ->
+            preferences[stringPreferencesKey(key)] = Json.encodeToString(value)
+        }
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        val preferences = dataStore.data.first()
+        return preferences.contains(stringPreferencesKey(key))
+    }
+
+    override suspend fun clearPreference(key: String) {
+        dataStore.edit { preferences ->
+            preferences.remove(stringPreferencesKey(key))
+        }
+    }
+
+    override suspend fun clearAllPreferences() {
+        dataStore.edit { preferences ->
+            preferences.clear()
+        }
+    }
+}
+
+// AndroidEncryptedPreferencePlugin.kt
+import androidx.security.crypto.EncryptedSharedPreferences
+import android.content.Context
+
+actual class CommonEncryptedPreferencePlugin(context: Context) : EncryptedPreferencePlugin {
+    private val encryptedPrefs = EncryptedSharedPreferences.create(
+        "encrypted_prefs",
+        "master_key",
+        context,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        val value = encryptedPrefs.getString(key, null) ?: return default
+        return Json.decodeFromString(value) as T
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        encryptedPrefs.edit().putString(key, Json.encodeToString(value)).apply()
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        return encryptedPrefs.contains(key)
+    }
+
+    override suspend fun clearPreference(key: String) {
+        encryptedPrefs.edit().remove(key).apply()
+    }
+
+    override suspend fun clearAllPreferences() {
+        encryptedPrefs.edit().clear().apply()
+    }
+}
+
+// AndroidBiometricsPreferencePlugin.kt
+import androidx.biometric.BiometricPrompt
+import android.content.Context
+
+actual class CommonBiometricsPreferencePlugin(private val context: Context) : BiometricsPreferencePlugin {
+    private val encryptedPrefs = EncryptedSharedPreferences.create(
+        "biometric_prefs",
+        "biometric_master_key",
+        context,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        if (!authenticateBiometrics()) return default
+        val value = encryptedPrefs.getString(key, null) ?: return default
+        return Json.decodeFromString(value) as T
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        if (!authenticateBiometrics()) return
+        encryptedPrefs.edit().putString(key, Json.encodeToString(value)).apply()
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        return encryptedPrefs.contains(key)
+    }
+
+    override suspend fun clearPreference(key: String) {
+        if (!authenticateBiometrics()) return
+        encryptedPrefs.edit().remove(key).apply()
+    }
+
+    override suspend fun clearAllPreferences() {
+        if (!authenticateBiometrics()) return
+        encryptedPrefs.edit().clear().apply()
+    }
+
+    private suspend fun authenticateBiometrics(): Boolean {
+        // Implement biometric authentication logic here
+        // Return true if authentication is successful, false otherwise
+    }
+}
+```
+
+### iOS Implementations
+
+```kotlin
+// IosPreferencePlugin.kt
+import platform.Foundation.NSUserDefaults
+
+actual class CommonPreferencePlugin : PreferencePlugin {
+    private val userDefaults = NSUserDefaults.standardUserDefaults
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        val value = userDefaults.stringForKey(key) ?: return default
+        return Json.decodeFromString(value) as T
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        userDefaults.setObject(Json.encodeToString(value), key)
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        return userDefaults.objectForKey(key) != null
+    }
+
+    override suspend fun clearPreference(key: String) {
+        userDefaults.removeObjectForKey(key)
+    }
+
+    override suspend fun clearAllPreferences() {
+        userDefaults.dictionaryRepresentation().keys.forEach { key ->
+            userDefaults.removeObjectForKey(key as String)
+        }
+    }
+}
+
+// IosEncryptedPreferencePlugin.kt
+import platform.Security.kSecAttrAccessible
+import platform.Security.kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+
+actual class CommonEncryptedPreferencePlugin : EncryptedPreferencePlugin {
+    private val keychain = KeychainWrapper()
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        val value = keychain.string(forKey = key) ?: return default
+        return Json.decodeFromString(value) as T
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        keychain.set(Json.encodeToString(value), forKey = key, withAccessibility = kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        return keychain.hasValue(forKey = key)
+    }
+
+    override suspend fun clearPreference(key: String) {
+        keychain.removeObject(forKey = key)
+    }
+
+    override suspend fun clearAllPreferences() {
+        keychain.removeAllKeys()
+    }
+}
+
+// IosBiometricsPreferencePlugin.kt
+import platform.LocalAuthentication.LAContext
+
+actual class CommonBiometricsPreferencePlugin : BiometricsPreferencePlugin {
+    private val keychain = KeychainWrapper()
+    private val laContext = LAContext()
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        if (!authenticateBiometrics()) return default
+        val value = keychain.string(forKey = key) ?: return default
+        return Json.decodeFromString(value) as T
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        if (!authenticateBiometrics()) return
+        keychain.set(Json.encodeToString(value), forKey = key, withAccessibility = kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        return keychain.hasValue(forKey = key)
+    }
+
+    override suspend fun clearPreference(key: String) {
+        if (!authenticateBiometrics()) return
+        keychain.removeObject(forKey = key)
+    }
+
+    override suspend fun clearAllPreferences() {
+        if (!authenticateBiometrics()) return
+        keychain.removeAllKeys()
+    }
+
+    private suspend fun authenticateBiometrics(): Boolean {
+        // Implement biometric authentication logic here
+        // Return true if authentication is successful, false otherwise
+    }
+}
+```
+
+### Unit Tests
+
+1. PreferencePluginTest:
+
+```kotlin
+import kotlinx.coroutines.test.runTest
+import kotlin.test.*
+import io.mockk.*
+
+class PreferencePluginTest {
+    private lateinit var preferencePlugin: PreferencePlugin
+    private lateinit var mockDataStore: DataStore<Preferences>
+
+    @BeforeTest
+    fun setup() {
+        mockDataStore = mockk()
+        preferencePlugin = CommonPreferencePlugin(mockDataStore)
+    }
+
+    @Test
+    fun `get preference when key exists returns correct value`() = runTest {
+        val key = "existing_key"
+        val value = "test_value"
+        val preferences = mockk<Preferences>()
+        
+        coEvery { mockDataStore.data.first() } returns preferences
+        every { preferences[stringPreferencesKey(key)] } returns Json.encodeToString(value)
+        
+        val result = preferencePlugin.getPreference(key, "default")
+        assertEquals(value, result)
+    }
+
+    @Test
+    fun `get preference when key doesn't exist returns default value`() = runTest {
+        val key = "non_existent_key"
+        val default = "default_value"
+        val preferences = mockk<Preferences>()
+        
+        coEvery { mockDataStore.data.first() } returns preferences
+        every { preferences[stringPreferencesKey(key)] } returns null
+        
+        val result = preferencePlugin.getPreference(key, default)
+        assertEquals(default, result)
+    }
+
+    @Test
+    fun `put preference when called updates datastore`() = runTest {
+        val key = "test_key"
+        val value = "test_value"
+        
+        coEvery { mockDataStore.edit(any()) } just Runs
+        
+        preferencePlugin.putPreference(key, value)
+        coVerify { mockDataStore.edit(any()) }
+    }
+
+    @Test
+    fun `has preference when key exists returns true`() = runTest {
+        val key = "existing_key"
+        val preferences = mockk<Preferences>()
+        
+        coEvery { mockDataStore.data.first() } returns preferences
+        every { preferences.contains(stringPreferencesKey(key)) } returns true
+        
+        val result = preferencePlugin.hasPreference(key)
+        assertTrue(result)
+    }
+
+    @Test
+    fun `has preference when key doesn't exist returns false`() = runTest {
+        val key = "non_existent_key"
+        val preferences = mockk<Preferences>()
+        
+        coEvery { mockDataStore.data.first() } returns preferences
+        every { preferences.contains(stringPreferencesKey(key)) } returns false
+        
+        val result = preferencePlugin.hasPreference(key)
+        assertFalse(result)
+    }
+
+    @Test
+    fun `clear preference when called removes specific key`() = runTest {
+        val key = "test_key"
+        
+        coEvery { mockDataStore.edit(any()) } just Runs
+        
+        preferencePlugin.clearPreference(key)
+        coVerify { mockDataStore.edit(any()) }
+    }
+
+    @Test
+    fun `clear all preferences when called empties datastore`() = runTest {
+        coEvery { mockDataStore.edit(any()) } just Runs
+        
+        preferencePlugin.clearAllPreferences()
+        coVerify { mockDataStore.edit(any()) }
+    }
+}
+```
+
+2. EncryptedPreferencePluginTest:
+
+```kotlin
+import kotlinx.coroutines.test.runTest
+import kotlin.test.*
+import io.mockk.*
+
+class EncryptedPreferencePluginTest {
+    private lateinit var encryptedPreferencePlugin: EncryptedPreferencePlugin
+    private lateinit var mockEncryptedSharedPreferences: EncryptedSharedPreferences
+
+    @BeforeTest
+    fun setup() {
+        mockEncryptedSharedPreferences = mockk()
+        encryptedPreferencePlugin = CommonEncryptedPreferencePlugin(mockEncryptedSharedPreferences)
+    }
+
+    @Test
+    fun `get encrypted preference when key exists returns decrypted value`() = runTest {
+        val key = "existing_key"
+        val value = "test_value"
+        
+        every { mockEncryptedSharedPreferences.getString(key, null) } returns Json.encodeToString(value)
+        
+        val result = encryptedPreferencePlugin.getPreference(key, "default")
+        assertEquals(value, result)
+    }
+
+    @Test
+    fun `get encrypted preference when key doesn't exist returns default value`() = runTest {
+        val key = "non_existent_key"
+        val default = "default_value"
+        
+        every { mockEncryptedSharedPreferences.getString(key, null) } returns null
+        
+        val result = encryptedPreferencePlugin.getPreference(key, default)
+        assertEquals(default, result)
+    }
+
+    @Test
+    fun `put encrypted preference when called encrypts and stores value`() = runTest {
+        val key = "test_key"
+        val value = "test_value"
+        val mockEditor = mockk<SharedPreferences.Editor>()
+        
+        every { mockEncryptedSharedPreferences.edit() } returns mockEditor
+        every { mockEditor.putString(any(), any()) } returns mockEditor
+        every { mockEditor.apply() } just Runs
+        
+        encryptedPreferencePlugin.putPreference(key, value)
+        verify { mockEditor.putString(key, any()) }
+        verify { mockEditor.apply() }
+    }
+
+    @Test
+    fun `has encrypted preference when key exists returns true`() = runTest {
+        val key = "existing_key"
+        
+        every { mockEncryptedSharedPreferences.contains(key) } returns true
+        
+        val result = encryptedPreferencePlugin.hasPreference(key)
+        assertTrue(result)
+    }
+
+    @Test
+    fun `has encrypted preference when key doesn't exist returns false`() = runTest {
+        val key = "non_existent_key"
+        
+        every { mockEncryptedSharedPreferences.contains(key) } returns false
+        
+        val result = encryptedPreferencePlugin.hasPreference(key)
+        assertFalse(result)
+    }
+
+    @Test
+    fun `clear encrypted preference when called removes specific key`() = runTest {
+        val key = "test_key"
+        val mockEditor = mockk<SharedPreferences.Editor>()
+        
+        every { mockEncryptedSharedPreferences.edit() } returns mockEditor
+        every { mockEditor.remove(key) } returns mockEditor
+        every { mockEditor.apply() } just Runs
+        
+        encryptedPreferencePlugin.clearPreference(key)
+        verify { mockEditor.remove(key) }
+        verify { mockEditor.apply() }
+    }
+
+    @Test
+    fun `clear all encrypted preferences when called empties storage`() = runTest {
+        val mockEditor = mockk<SharedPreferences.Editor>()
+        
+        every { mockEncryptedSharedPreferences.edit() } returns mockEditor
+        every { mockEditor.clear() } returns mockEditor
+        every { mockEditor.apply() } just Runs
+        
+        encryptedPreferencePlugin.clearAllPreferences()
+        verify { mockEditor.clear() }
+        verify { mockEditor.apply() }
+    }
+}
+```
+
+3. BiometricsPreferencePluginTest:
+
+```kotlin
+import kotlinx.coroutines.test.runTest
+import kotlin.test.*
+import io.mockk.*
+
+class BiometricsPreferencePluginTest {
+    private lateinit var biometricsPreferencePlugin: BiometricsPreferencePlugin
+    private lateinit var mockKeychain: KeychainWrapper
+    private lateinit var mockBiometricPrompt: BiometricPrompt
+
+    @BeforeTest
+    fun setup() {
+        mockKeychain = mockk()
+        mockBiometricPrompt = mockk()
+        biometricsPreferencePlugin = CommonBiometricsPreferencePlugin(mockKeychain, mockBiometricPrompt)
+    }
+
+    @Test
+    fun `get biometric preference when authentication succeeds and key exists returns decrypted value`() = runTest {
+        val key = "existing_key"
+        val value = "test_value"
+        
+        coEvery { mockBiometricPrompt.authenticate() } returns true
+        every { mockKeychain.string(forKey = key) } returns Json.encodeToString(value)
+        
+        val result = biometricsPreferencePlugin.getPreference(key, "default")
+        assertEquals(value, result)
+    }
+
+    @Test
+    fun `get biometric preference when authentication succeeds and key doesn't exist returns default value`() = runTest {
+        val key = "non_existent_key"
+        val default = "default_value"
+        
+        coEvery { mockBiometricPrompt.authenticate() } returns true
+        every { mockKeychain.string(forKey = key) } returns null
+        
+        val result = biometricsPreferencePlugin.getPreference(key, default)
+        assertEquals(default, result)
+    }
+
+    @Test
+    fun `get biometric preference when authentication fails returns default value`() = runTest {
+        val key = "test_key"
+        val default = "default_value"
+        
+        coEvery { mockBiometricPrompt.authenticate() } returns false
+        
+        val result = biometricsPreferencePlugin.getPreference(key, default)
+        assertEquals(default, result)
+    }
+
+    @Test
+    fun `put biometric preference when authentication succeeds encrypts and stores value`() = runTest {
+        val key = "test_key"
+        val value = "test_value"
+        
+        coEvery { mockBiometricPrompt.authenticate() } returns true
+        every { mockKeychain.set(any(), forKey = key, withAccessibility = any()) } just Runs
+        
+        biometricsPreferencePlugin.putPreference(key, value)
+        verify { mockKeychain.set(any(), forKey = key, withAccessibility = any()) }
+    }
+
+    @Test
+    fun `put biometric preference when authentication fails doesn't store value`() = runTest {
+        val key = "test_key"
+        val value = "test_value"
+        
+        coEvery { mockBiometricPrompt.authenticate() } returns false
+        
+        biometricsPreferencePlugin.putPreference(key, value)
+        verify(exactly = 0) { mockKeychain.set(any(), forKey = any(), withAccessibility = any()) }
+    }
+
+    @Test
+    fun `has biometric preference when key exists returns true`() = runTest {
+        val key = "existing_key"
+        
+        every { mockKeychain.hasValue(forKey = key) } returns true
+        
+        val result = biometricsPreferencePlugin.hasPreference(key)
+        assertTrue(result)
+    }
+
+    @Test
+    fun `has biometric preference when key doesn't exist returns false`() = runTest {
+        val key = "non_existent_key"
+        
+        every { mockKeychain.hasValue(forKey = key) } returns false
+        
+        val result = biometricsPreferencePlugin.hasPreference(key)
+        assertFalse(result)
+    }
+
+    @Test
+    fun `clear biometric preference when authentication succeeds removes specific key`() = runTest {
+        val key = "test_key
