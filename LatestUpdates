@@ -1,3 +1,161 @@
+To implement the `EncryptedPreferencePlugin` interface in a Kotlin Multiplatform (KMP) project, we'll create an actual class that provides platform-specific implementations for storing and retrieving encrypted preferences on both Android and iOS. We'll leverage the code for iOS that I previously provided and add a simple implementation for Android using Android's `EncryptedSharedPreferences`.
+
+Here’s how you can implement the `EncryptedPreferencePlugin` interface:
+
+### 1. **Define the Interface:**
+
+First, define the interface in the shared code (`commonMain`):
+
+```kotlin
+interface EncryptedPreferencePlugin {
+    suspend fun <T> getPreference(key: String, default: T): T
+    suspend fun <T> putPreference(key: String, value: T)
+    suspend fun hasPreference(key: String): Boolean
+}
+```
+
+### 2. **Implement the Interface for Android:**
+
+In `androidMain`, you can implement the interface using `EncryptedSharedPreferences`:
+
+```kotlin
+import android.content.Context
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+
+actual class EncryptedPreferencePlugin(private val context: Context) : EncryptedPreferencePlugin {
+
+    private val sharedPreferences by lazy {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+
+        EncryptedSharedPreferences.create(
+            context,
+            "encrypted_prefs",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        return when (default) {
+            is String -> sharedPreferences.getString(key, default) as T
+            is Int -> sharedPreferences.getInt(key, default) as T
+            is Boolean -> sharedPreferences.getBoolean(key, default) as T
+            is Float -> sharedPreferences.getFloat(key, default) as T
+            is Long -> sharedPreferences.getLong(key, default) as T
+            else -> throw IllegalArgumentException("Unsupported type")
+        }
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        with(sharedPreferences.edit()) {
+            when (value) {
+                is String -> putString(key, value)
+                is Int -> putInt(key, value)
+                is Boolean -> putBoolean(key, value)
+                is Float -> putFloat(key, value)
+                is Long -> putLong(key, value)
+                else -> throw IllegalArgumentException("Unsupported type")
+            }.apply()
+        }
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        return sharedPreferences.contains(key)
+    }
+}
+```
+
+### 3. **Implement the Interface for iOS:**
+
+In `iosMain`, implement the interface using the iOS-specific code I provided earlier:
+
+```kotlin
+import platform.Security.*
+import platform.Foundation.*
+
+actual class EncryptedPreferencePlugin : EncryptedPreferencePlugin {
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        val query = mapOf(
+            kSecClass to kSecClassGenericPassword,
+            kSecAttrAccount to key,
+            kSecReturnData to kCFBooleanTrue,
+            kSecMatchLimit to kSecMatchLimitOne
+        )
+
+        memScoped {
+            val result = alloc<CFTypeRefVar>()
+            val status = SecItemCopyMatching(query as CFDictionaryRef, result.ptr)
+
+            if (status == errSecSuccess) {
+                val data = result.value as NSData
+                val value = NSString.create(data, NSUTF8StringEncoding) as String
+                return value as T
+            }
+        }
+
+        return default
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        val valueData = (value as String).encodeToByteArray().toNSData()
+        val query = mapOf(
+            kSecClass to kSecClassGenericPassword,
+            kSecAttrAccount to key,
+            kSecValueData to valueData
+        )
+
+        SecItemDelete(query as CFDictionaryRef) // Deletes any existing item with the same key
+        val status = SecItemAdd(query as CFDictionaryRef, null)
+
+        if (status != errSecSuccess) {
+            throw Exception("Error saving data: $status")
+        }
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        val query = mapOf(
+            kSecClass to kSecClassGenericPassword,
+            kSecAttrAccount to key,
+            kSecReturnData to kCFBooleanFalse,
+            kSecMatchLimit to kSecMatchLimitOne
+        )
+
+        val status = SecItemCopyMatching(query as CFDictionaryRef, null)
+        return status == errSecSuccess
+    }
+}
+```
+
+### 4. **Usage in Shared Code:**
+
+You can now use the `EncryptedPreferencePlugin` interface in your shared code and it will work seamlessly across both Android and iOS.
+
+Example:
+
+```kotlin
+suspend fun saveUserPreference(plugin: EncryptedPreferencePlugin, key: String, value: String) {
+    plugin.putPreference(key, value)
+}
+
+suspend fun getUserPreference(plugin: EncryptedPreferencePlugin, key: String, default: String): String {
+    return plugin.getPreference(key, default)
+}
+
+suspend fun userHasPreference(plugin: EncryptedPreferencePlugin, key: String): Boolean {
+    return plugin.hasPreference(key)
+}
+```
+
+This code provides a robust and secure way to store encrypted preferences in a Kotlin Multiplatform project, with platform-specific implementations for Android and iOS.
+
+
+
+
 // iosMain/kotlin/com/example/caching/EncryptedPreferencePluginImpl.kt
 
 package com.example.caching
