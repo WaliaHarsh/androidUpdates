@@ -1,3 +1,86 @@
+// iosMain/kotlin/com/example/caching/EncryptedPreferencePluginImpl.kt
+
+package com.example.caching
+
+import kotlinx.cinterop.*
+import platform.Foundation.*
+import platform.Security.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+
+actual class EncryptedPreferencePluginImpl : EncryptedPreferencePlugin {
+
+    override suspend fun <T> getPreference(key: String, default: T): T {
+        return memScoped {
+            val query = mapOf(
+                kSecClass to kSecClassGenericPassword,
+                kSecAttrAccount to key,
+                kSecReturnData to kCFBooleanTrue,
+                kSecMatchLimit to kSecMatchLimitOne
+            )
+
+            val resultPtr = alloc<ObjCObjectVar<Any?>>()
+            val status = SecItemCopyMatching(query as CFDictionary, resultPtr.ptr)
+
+            if (status == errSecSuccess) {
+                val data = resultPtr.value as NSData
+                val jsonString = NSString.create(data, NSUTF8StringEncoding) as String
+                Json.decodeFromString(jsonString)
+            } else {
+                default
+            }
+        }
+    }
+
+    override suspend fun <T> putPreference(key: String, value: T) {
+        val jsonString = Json.encodeToString(value)
+        val data = NSString.create(string = jsonString).dataUsingEncoding(NSUTF8StringEncoding)!!
+
+        val query = mapOf(
+            kSecClass to kSecClassGenericPassword,
+            kSecAttrAccount to key,
+            kSecValueData to data,
+            kSecAttrAccessible to kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        )
+
+        SecItemDelete(query as CFDictionary) // Remove existing item if it exists
+        SecItemAdd(query as CFDictionary, null)
+    }
+
+    override suspend fun hasPreference(key: String): Boolean {
+        return memScoped {
+            val query = mapOf(
+                kSecClass to kSecClassGenericPassword,
+                kSecAttrAccount to key,
+                kSecReturnData to kCFBooleanFalse
+            )
+
+            val status = SecItemCopyMatching(query as CFDictionary, null)
+            status == errSecSuccess
+        }
+    }
+
+    override suspend fun clearPreference(key: String) {
+        val query = mapOf(
+            kSecClass to kSecClassGenericPassword,
+            kSecAttrAccount to key
+        )
+
+        SecItemDelete(query as CFDictionary)
+    }
+
+    override suspend fun clearAllPreferences() {
+        val query = mapOf(
+            kSecClass to kSecClassGenericPassword
+        )
+
+        SecItemDelete(query as CFDictionary)
+    }
+}
+
+
+
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
