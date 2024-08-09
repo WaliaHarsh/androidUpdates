@@ -1,3 +1,46 @@
+import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+
+class PreferenceStorageTest {
+
+    private lateinit var preferenceStorage: PreferenceStorage
+
+    @Before
+    fun setup() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        preferenceStorage = CommonPreferenceStorage(provideDataStore(context))
+    }
+
+    @Test
+    fun testPutAndGetPreference() = runBlocking {
+        val key = "testKey"
+        val value = "testValue"
+        preferenceStorage.putPreference(key, value)
+        val retrievedValue = preferenceStorage.getPreference(key, "default")
+        assertEquals(value, retrievedValue)
+    }
+
+    @Test
+    fun testHasPreference() = runBlocking {
+        val key = "testKey"
+        val value = "testValue"
+        preferenceStorage.putPreference(key, value)
+        assertTrue(preferenceStorage.hasPreference(key))
+    }
+
+    @Test
+    fun testClearPreference() = runBlocking {
+        val key = "testKey"
+        val value = "testValue"
+        preferenceStorage.putPreference(key, value)
+        preferenceStorage.clearPreference(key)
+        assertFalse(preferenceStorage.hasPreference(key))
+    }
+}
+
 I apologize for the incomplete response. I'll provide the complete code, including the dependency injection part as mentioned in the HLD. Here's the full implementation:
 
 1. build.gradle.kts (root project)
